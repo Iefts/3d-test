@@ -1,313 +1,230 @@
 import * as THREE from 'three';
-import { isKeyDown, consumeMouseDelta, isLocked } from './input.js';
-import { PLAYER_HEIGHT } from './physics.js';
+import { isKeyDown, consumeMouseDelta, isLocked, consumeLeftClick, consumeRightClick, consumeScroll } from './input.js';
+import { BLOCK_DATA, AIR, HOTBAR_BLOCKS } from './blocks.js';
 
-// States
-const GROUNDED = 'GROUNDED';
-const AIRBORNE = 'AIRBORNE';
-const SLIDING = 'SLIDING';
-const WALLRUNNING = 'WALLRUNNING';
-
-// Tuning constants
-const MOVE_SPEED = 12;
-const MOVE_ACCEL = 40;
-const AIR_ACCEL = 15;
-const FRICTION = 8;
-const AIR_FRICTION = 1;
-const GRAVITY = -25;
-const BASE_JUMP = 8;
-const MAX_JUMP_BONUS = 5; // extra jump height at max momentum
 const MOUSE_SENSITIVITY = 0.002;
+const WALK_SPEED = 4.3;
+const SPRINT_SPEED = 5.6;
+const JUMP_VELOCITY = 8;
+const GRAVITY = -24;
+const PLAYER_HEIGHT = 1.62;
+const PLAYER_WIDTH = 0.6;
+const EYE_HEIGHT = 1.52;
 
-// Momentum
-const MOMENTUM_BUILD_RATE = 0.15;
-const MOMENTUM_DECAY_RATE = 0.3;
-const MOMENTUM_DECAY_IDLE = 0.5;
+export class Player {
+  constructor(camera) {
+    this.camera = camera;
+    this.position = new THREE.Vector3(0, 40, 0);
+    this.velocity = new THREE.Vector3(0, 0, 0);
+    this.yaw = 0;
+    this.pitch = 0;
+    this.isGrounded = false;
+    this.selectedSlot = 0;
+    this.isSprinting = false;
 
-// Abilities
-const SLIDE_SPEED_BOOST = 1.3;
-const SLIDE_DURATION = 0.8;
-const WALLRUN_DURATION = 1.5;
-const WALLRUN_UP_SPEED = 3;
-const DASH_DISTANCE = 8;
-const DASH_SPEED = 30;
-const BURST_SPEED = 50;
-const BURST_COOLDOWN = 3;
-
-export function createPlayer(scene, camera) {
-  const player = {
-    position: new THREE.Vector3(0, 3, 0),
-    velocity: new THREE.Vector3(0, 0, 0),
-    state: GROUNDED,
-    momentum: 0,
-    yaw: 0,
-    pitch: 0,
-
-    // Flags set by physics
-    isGrounded: false,
-    wallContact: null,
-
-    // Ability state
-    dashAvailable: true,
-    slideTimer: 0,
-    wallRunTimer: 0,
-    wallRunNormal: null,
-    burstCooldown: 0,
-
-    // Checkpoint
-    lastCheckpoint: { x: 0, y: 3, z: 0 },
-
-    camera,
-  };
-
-  return player;
-}
-
-export function updatePlayer(player, delta) {
-  if (!isLocked()) return;
-
-  const p = player;
-
-  // Mouse look
-  const mouse = consumeMouseDelta();
-  p.yaw -= mouse.dx * MOUSE_SENSITIVITY;
-  p.pitch -= mouse.dy * MOUSE_SENSITIVITY;
-  p.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, p.pitch));
-
-  // Build movement direction from input
-  const forward = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-  const right = new THREE.Vector3(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
-  const wishDir = new THREE.Vector3(0, 0, 0);
-
-  if (isKeyDown('KeyW')) wishDir.add(forward);
-  if (isKeyDown('KeyS')) wishDir.sub(forward);
-  if (isKeyDown('KeyD')) wishDir.add(right);
-  if (isKeyDown('KeyA')) wishDir.sub(right);
-  if (wishDir.lengthSq() > 0) wishDir.normalize();
-
-  const isMoving = wishDir.lengthSq() > 0;
-  const horizontalSpeed = Math.sqrt(p.velocity.x * p.velocity.x + p.velocity.z * p.velocity.z);
-
-  // State machine
-  switch (p.state) {
-    case GROUNDED:
-      handleGrounded(p, delta, wishDir, isMoving, horizontalSpeed);
-      break;
-    case AIRBORNE:
-      handleAirborne(p, delta, wishDir, isMoving, horizontalSpeed);
-      break;
-    case SLIDING:
-      handleSliding(p, delta, wishDir, isMoving, horizontalSpeed);
-      break;
-    case WALLRUNNING:
-      handleWallRunning(p, delta, wishDir, isMoving, horizontalSpeed);
-      break;
+    // Block break/place cooldown
+    this.breakCooldown = 0;
+    this.placeCooldown = 0;
   }
 
-  // Gravity (not while wallrunning)
-  if (p.state !== WALLRUNNING) {
-    p.velocity.y += GRAVITY * delta;
+  update(delta, world) {
+    if (!isLocked()) return;
+
+    // Mouse look
+    const mouse = consumeMouseDelta();
+    this.yaw -= mouse.dx * MOUSE_SENSITIVITY;
+    this.pitch -= mouse.dy * MOUSE_SENSITIVITY;
+    this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
+
+    // Movement input
+    const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const wishDir = new THREE.Vector3(0, 0, 0);
+
+    if (isKeyDown('KeyW')) wishDir.add(forward);
+    if (isKeyDown('KeyS')) wishDir.sub(forward);
+    if (isKeyDown('KeyD')) wishDir.add(right);
+    if (isKeyDown('KeyA')) wishDir.sub(right);
+
+    // Sprint
+    this.isSprinting = isKeyDown('ShiftLeft') && isKeyDown('KeyW');
+    const speed = this.isSprinting ? SPRINT_SPEED : WALK_SPEED;
+
+    if (wishDir.lengthSq() > 0) {
+      wishDir.normalize();
+      this.velocity.x = wishDir.x * speed;
+      this.velocity.z = wishDir.z * speed;
+    } else {
+      this.velocity.x *= 0.8;
+      this.velocity.z *= 0.8;
+      if (Math.abs(this.velocity.x) < 0.01) this.velocity.x = 0;
+      if (Math.abs(this.velocity.z) < 0.01) this.velocity.z = 0;
+    }
+
+    // Gravity
+    this.velocity.y += GRAVITY * delta;
+
+    // Jump
+    if (isKeyDown('Space') && this.isGrounded) {
+      this.velocity.y = JUMP_VELOCITY;
+      this.isGrounded = false;
+    }
+
+    // Apply movement with collision
+    this.moveWithCollision(delta, world);
+
+    // Hotbar selection
+    for (let i = 0; i < 9; i++) {
+      if (isKeyDown(`Digit${i + 1}`)) {
+        this.selectedSlot = i;
+      }
+    }
+    const scroll = consumeScroll();
+    if (scroll !== 0) {
+      this.selectedSlot = ((this.selectedSlot + scroll) % 9 + 9) % 9;
+    }
+
+    // Block interaction
+    this.breakCooldown -= delta;
+    this.placeCooldown -= delta;
+
+    if (consumeLeftClick() && this.breakCooldown <= 0) {
+      this.breakBlock(world);
+      this.breakCooldown = 0.25;
+    }
+
+    if (consumeRightClick() && this.placeCooldown <= 0) {
+      this.placeBlock(world);
+      this.placeCooldown = 0.25;
+    }
+
+    // Update camera
+    this.camera.position.set(
+      this.position.x,
+      this.position.y + EYE_HEIGHT,
+      this.position.z
+    );
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
   }
 
-  // Momentum update
-  updateMomentum(p, delta, isMoving, horizontalSpeed);
+  moveWithCollision(delta, world) {
+    const halfW = PLAYER_WIDTH / 2;
+    const steps = 3; // split movement into steps for better collision
 
-  // Burst cooldown
-  if (p.burstCooldown > 0) p.burstCooldown -= delta;
+    // Move on each axis separately
+    for (let axis of ['x', 'y', 'z']) {
+      const move = this.velocity[axis] * delta;
+      this.position[axis] += move;
 
-  // Update camera
-  const eyeHeight = p.state === SLIDING ? PLAYER_HEIGHT * 0.3 : PLAYER_HEIGHT * 0.45;
-  p.camera.position.set(p.position.x, p.position.y + eyeHeight, p.position.z);
-  p.camera.rotation.order = 'YXZ';
-  p.camera.rotation.y = p.yaw;
-  p.camera.rotation.x = p.pitch;
-}
+      // Check collision
+      if (this.checkCollision(world, halfW)) {
+        this.position[axis] -= move;
+        if (axis === 'y') {
+          if (this.velocity.y < 0) this.isGrounded = true;
+          this.velocity.y = 0;
+        }
+      }
+    }
 
-function handleGrounded(p, delta, wishDir, isMoving, hSpeed) {
-  // Acceleration
-  if (isMoving) {
-    p.velocity.x += wishDir.x * MOVE_ACCEL * delta;
-    p.velocity.z += wishDir.z * MOVE_ACCEL * delta;
+    // Extra ground check
+    if (!this.isGrounded) {
+      const feetY = this.position.y - 0.05;
+      for (let dx of [-halfW + 0.01, halfW - 0.01]) {
+        for (let dz of [-halfW + 0.01, halfW - 0.01]) {
+          const bx = Math.floor(this.position.x + dx);
+          const by = Math.floor(feetY);
+          const bz = Math.floor(this.position.z + dz);
+          const block = world.getBlock(bx, by, bz);
+          if (BLOCK_DATA[block]?.solid) {
+            this.isGrounded = true;
+            break;
+          }
+        }
+        if (this.isGrounded) break;
+      }
+    }
   }
 
-  // Friction
-  const frictionFactor = 1 - FRICTION * delta;
-  p.velocity.x *= Math.max(0, frictionFactor);
-  p.velocity.z *= Math.max(0, frictionFactor);
+  checkCollision(world, halfW) {
+    const minX = Math.floor(this.position.x - halfW);
+    const maxX = Math.floor(this.position.x + halfW);
+    const minY = Math.floor(this.position.y);
+    const maxY = Math.floor(this.position.y + PLAYER_HEIGHT);
+    const minZ = Math.floor(this.position.z - halfW);
+    const maxZ = Math.floor(this.position.z + halfW);
 
-  // Speed cap
-  const speed = Math.sqrt(p.velocity.x * p.velocity.x + p.velocity.z * p.velocity.z);
-  if (speed > MOVE_SPEED) {
-    const scale = MOVE_SPEED / speed;
-    p.velocity.x *= scale;
-    p.velocity.z *= scale;
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        for (let bz = minZ; bz <= maxZ; bz++) {
+          const block = world.getBlock(bx, by, bz);
+          if (BLOCK_DATA[block]?.solid) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
-  // Jump
-  if (isKeyDown('Space')) {
-    const jumpPower = BASE_JUMP + MAX_JUMP_BONUS * p.momentum;
-    p.velocity.y = jumpPower;
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
-    return;
+  getLookDirection() {
+    const dir = new THREE.Vector3(0, 0, -1);
+    dir.applyEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+    return dir;
   }
 
-  // Slide
-  if ((isKeyDown('KeyC') || isKeyDown('ControlLeft') || isKeyDown('ControlRight')) && p.momentum >= 0.3 && hSpeed > 2) {
-    p.state = SLIDING;
-    p.slideTimer = SLIDE_DURATION;
-    // Boost in movement direction
-    const dir = new THREE.Vector3(p.velocity.x, 0, p.velocity.z).normalize();
-    p.velocity.x = dir.x * hSpeed * SLIDE_SPEED_BOOST;
-    p.velocity.z = dir.z * hSpeed * SLIDE_SPEED_BOOST;
-    return;
+  breakBlock(world) {
+    const origin = new THREE.Vector3(
+      this.position.x,
+      this.position.y + EYE_HEIGHT,
+      this.position.z
+    );
+    const hit = world.raycast(origin, this.getLookDirection());
+    if (hit) {
+      world.setBlock(hit.x, hit.y, hit.z, AIR);
+    }
   }
 
-  // Burst
-  if (isKeyDown('KeyQ') && p.momentum >= 0.9 && p.burstCooldown <= 0) {
-    const dir = new THREE.Vector3(-Math.sin(p.yaw), 0.3, -Math.cos(p.yaw)).normalize();
-    p.velocity.set(dir.x * BURST_SPEED, dir.y * BURST_SPEED, dir.z * BURST_SPEED);
-    p.momentum -= 0.5;
-    p.burstCooldown = BURST_COOLDOWN;
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
-    return;
+  placeBlock(world) {
+    const origin = new THREE.Vector3(
+      this.position.x,
+      this.position.y + EYE_HEIGHT,
+      this.position.z
+    );
+    const hit = world.raycast(origin, this.getLookDirection());
+    if (hit) {
+      const blockType = HOTBAR_BLOCKS[this.selectedSlot];
+      if (blockType === undefined) return;
+
+      // Don't place inside the player
+      const px = hit.placeX;
+      const py = hit.placeY;
+      const pz = hit.placeZ;
+      const halfW = PLAYER_WIDTH / 2;
+      const playerMinX = this.position.x - halfW;
+      const playerMaxX = this.position.x + halfW;
+      const playerMinY = this.position.y;
+      const playerMaxY = this.position.y + PLAYER_HEIGHT;
+      const playerMinZ = this.position.z - halfW;
+      const playerMaxZ = this.position.z + halfW;
+
+      if (px + 1 > playerMinX && px < playerMaxX &&
+          py + 1 > playerMinY && py < playerMaxY &&
+          pz + 1 > playerMinZ && pz < playerMaxZ) {
+        return;
+      }
+
+      world.setBlock(px, py, pz, blockType);
+    }
   }
 
-  // Transition to airborne if not on ground
-  if (!p.isGrounded) {
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
+  getTargetBlock(world) {
+    const origin = new THREE.Vector3(
+      this.position.x,
+      this.position.y + EYE_HEIGHT,
+      this.position.z
+    );
+    return world.raycast(origin, this.getLookDirection());
   }
-}
-
-function handleAirborne(p, delta, wishDir, isMoving, hSpeed) {
-  // Air control
-  if (isMoving) {
-    p.velocity.x += wishDir.x * AIR_ACCEL * delta;
-    p.velocity.z += wishDir.z * AIR_ACCEL * delta;
-  }
-
-  // Air friction (light)
-  const frictionFactor = 1 - AIR_FRICTION * delta;
-  p.velocity.x *= Math.max(0, frictionFactor);
-  p.velocity.z *= Math.max(0, frictionFactor);
-
-  // Wall run check
-  if (isKeyDown('Space') && p.wallContact && p.momentum >= 0.5 && p.velocity.y < 2) {
-    p.state = WALLRUNNING;
-    p.wallRunTimer = WALLRUN_DURATION;
-    p.wallRunNormal = p.wallContact.clone();
-    p.velocity.y = WALLRUN_UP_SPEED;
-    return;
-  }
-
-  // Air dash
-  if (isKeyDown('ShiftLeft') && p.dashAvailable && p.momentum >= 0.7) {
-    const dir = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-    p.velocity.set(dir.x * DASH_SPEED, Math.max(p.velocity.y, 2), dir.z * DASH_SPEED);
-    p.dashAvailable = false;
-    p.momentum -= 0.2;
-    return;
-  }
-
-  // Burst
-  if (isKeyDown('KeyQ') && p.momentum >= 0.9 && p.burstCooldown <= 0) {
-    const dir = new THREE.Vector3(-Math.sin(p.yaw), 0.3, -Math.cos(p.yaw)).normalize();
-    p.velocity.set(dir.x * BURST_SPEED, dir.y * BURST_SPEED, dir.z * BURST_SPEED);
-    p.momentum -= 0.5;
-    p.burstCooldown = BURST_COOLDOWN;
-    return;
-  }
-
-  // Landed
-  if (p.isGrounded) {
-    p.state = GROUNDED;
-    p.dashAvailable = true;
-  }
-}
-
-function handleSliding(p, delta, wishDir, isMoving, hSpeed) {
-  p.slideTimer -= delta;
-
-  // Low friction while sliding
-  const frictionFactor = 1 - 2 * delta;
-  p.velocity.x *= Math.max(0, frictionFactor);
-  p.velocity.z *= Math.max(0, frictionFactor);
-
-  // Exit slide
-  if (p.slideTimer <= 0 || (!isKeyDown('KeyC') && !isKeyDown('ControlLeft') && !isKeyDown('ControlRight'))) {
-    p.state = p.isGrounded ? GROUNDED : AIRBORNE;
-    return;
-  }
-
-  // Can jump out of slide
-  if (isKeyDown('Space')) {
-    const jumpPower = BASE_JUMP + MAX_JUMP_BONUS * p.momentum;
-    p.velocity.y = jumpPower;
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
-    return;
-  }
-
-  if (!p.isGrounded) {
-    p.state = AIRBORNE;
-  }
-}
-
-function handleWallRunning(p, delta, wishDir, isMoving, hSpeed) {
-  p.wallRunTimer -= delta;
-  p.velocity.y = Math.max(p.velocity.y - 3 * delta, -2); // Slowly lose altitude
-
-  // Move along wall
-  const wallTangent = new THREE.Vector3(-p.wallRunNormal.z, 0, p.wallRunNormal.x);
-  const forward = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-  const dot = forward.dot(wallTangent);
-  const runDir = wallTangent.multiplyScalar(Math.sign(dot));
-
-  p.velocity.x = runDir.x * MOVE_SPEED * 1.2;
-  p.velocity.z = runDir.z * MOVE_SPEED * 1.2;
-
-  // Exit: timer expired or no wall contact
-  if (p.wallRunTimer <= 0 || !p.wallContact) {
-    // Kick off the wall
-    p.velocity.x += p.wallRunNormal.x * 6;
-    p.velocity.y = BASE_JUMP * 0.8;
-    p.velocity.z += p.wallRunNormal.z * 6;
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
-    return;
-  }
-
-  // Jump off wall
-  if (!isKeyDown('Space')) {
-    p.velocity.x += p.wallRunNormal.x * 8;
-    p.velocity.y = BASE_JUMP;
-    p.velocity.z += p.wallRunNormal.z * 8;
-    p.state = AIRBORNE;
-    p.dashAvailable = true;
-    return;
-  }
-}
-
-function updateMomentum(p, delta, isMoving, horizontalSpeed) {
-  if (isMoving && horizontalSpeed > 2) {
-    // Build momentum while moving fast
-    const buildRate = MOMENTUM_BUILD_RATE * (horizontalSpeed / MOVE_SPEED);
-    p.momentum = Math.min(1, p.momentum + buildRate * delta);
-  } else if (horizontalSpeed < 1) {
-    // Decay when nearly still
-    p.momentum = Math.max(0, p.momentum - MOMENTUM_DECAY_IDLE * delta);
-  } else {
-    // Slow decay when moving slowly
-    p.momentum = Math.max(0, p.momentum - MOMENTUM_DECAY_RATE * delta);
-  }
-
-  // Bonus momentum from wallrunning
-  if (p.state === WALLRUNNING) {
-    p.momentum = Math.min(1, p.momentum + 0.3 * delta);
-  }
-
-  // Clamp
-  p.momentum = Math.max(0, Math.min(1, p.momentum));
 }

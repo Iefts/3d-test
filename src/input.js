@@ -2,6 +2,9 @@ const keys = new Map();
 let mouseDX = 0;
 let mouseDY = 0;
 let locked = false;
+let leftClick = false;
+let rightClick = false;
+let scrollDelta = 0;
 
 export function initInput() {
   document.addEventListener('keydown', (e) => {
@@ -18,10 +21,20 @@ export function initInput() {
     mouseDY += e.movementY;
   });
 
-  document.addEventListener('click', () => {
+  document.addEventListener('mousedown', (e) => {
     if (!locked) {
       document.body.requestPointerLock();
+      return;
     }
+    if (e.button === 0) leftClick = true;
+    if (e.button === 2) rightClick = true;
+  });
+
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  document.addEventListener('wheel', (e) => {
+    if (!locked) return;
+    scrollDelta += Math.sign(e.deltaY);
   });
 
   document.addEventListener('pointerlockchange', () => {
@@ -31,16 +44,30 @@ export function initInput() {
   });
 }
 
-export function updateInput() {
-  // Mouse delta is consumed each frame
-}
-
 export function consumeMouseDelta() {
   const dx = mouseDX;
   const dy = mouseDY;
   mouseDX = 0;
   mouseDY = 0;
   return { dx, dy };
+}
+
+export function consumeLeftClick() {
+  const v = leftClick;
+  leftClick = false;
+  return v;
+}
+
+export function consumeRightClick() {
+  const v = rightClick;
+  rightClick = false;
+  return v;
+}
+
+export function consumeScroll() {
+  const v = scrollDelta;
+  scrollDelta = 0;
+  return v;
 }
 
 export function isKeyDown(code) {

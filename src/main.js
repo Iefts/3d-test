@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { initInput, updateInput } from './input.js';
-import { initAtmosphere } from './atmosphere.js';
-import { initPhysics, updatePhysics } from './physics.js';
-import { createPlayer, updatePlayer } from './player.js';
-import { initLevel } from './level.js';
+import { initInput } from './input.js';
+import { World } from './world.js';
+import { Player } from './player.js';
+import { Atmosphere } from './atmosphere.js';
+import { BlockHighlight } from './highlight.js';
 import { initUI, updateUI } from './ui.js';
 
 // Renderer
@@ -13,23 +13,33 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
 // Scene & Camera
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 600);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 600);
 
 // Init systems
 initInput();
-const composer = initAtmosphere(scene, renderer, camera);
-const { colliders, checkpoints } = initLevel(scene);
-const player = createPlayer(scene, camera);
-initPhysics(colliders, player);
+const world = new World(scene);
+const player = new Player(camera);
+const atmosphere = new Atmosphere(scene);
+const highlight = new BlockHighlight(scene);
 initUI();
 
-// Checkpoint tracking
-let currentCheckpoint = 0;
+// Spawn player above terrain
+world.update(0, 0);
+// Wait a frame for chunks to generate, then find spawn height
+setTimeout(() => {
+  for (let y = 60; y > 0; y--) {
+    const block = world.getBlock(0, y, 0);
+    if (block !== 0) {
+      player.position.y = y + 2;
+      break;
+    }
+  }
+}, 0);
 
 // Game loop
 let lastTime = performance.now();
@@ -37,26 +47,19 @@ let lastTime = performance.now();
 function gameLoop(now) {
   requestAnimationFrame(gameLoop);
 
-  const delta = Math.min((now - lastTime) / 1000, 0.05); // cap at 50ms
+  const delta = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  updateInput();
-  updatePlayer(player, delta);
-  updatePhysics(delta);
+  player.update(delta, world);
+  world.update(player.position.x, player.position.z);
+  atmosphere.update(delta, player.position);
 
-  // Check checkpoint progression
-  for (let i = currentCheckpoint + 1; i < checkpoints.length; i++) {
-    const cp = checkpoints[i];
-    const dx = player.position.x - cp.x;
-    const dz = player.position.z - cp.z;
-    if (dx * dx + dz * dz < 25) { // within 5 units
-      currentCheckpoint = i;
-      player.lastCheckpoint = { x: cp.x, y: cp.y, z: cp.z };
-    }
-  }
+  // Block highlight
+  const hit = player.getTargetBlock(world);
+  highlight.update(hit);
 
-  updateUI(player);
-  composer.render();
+  updateUI(player, atmosphere, world);
+  renderer.render(scene, camera);
 }
 
 requestAnimationFrame(gameLoop);
@@ -66,5 +69,4 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
 });

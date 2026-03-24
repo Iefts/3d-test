@@ -1,41 +1,58 @@
-let momentumBar;
-let abSlide, abWallrun, abDash, abBurst;
-let speedDisplay;
+import { HOTBAR_BLOCKS, BLOCK_DATA } from './blocks.js';
+
+let debugEl;
+let timeEl;
+let slots = [];
 
 export function initUI() {
-  momentumBar = document.getElementById('momentum-bar');
-  abSlide = document.getElementById('ab-slide');
-  abWallrun = document.getElementById('ab-wallrun');
-  abDash = document.getElementById('ab-dash');
-  abBurst = document.getElementById('ab-burst');
-  speedDisplay = document.getElementById('speed-display');
+  debugEl = document.getElementById('debug');
+  timeEl = document.getElementById('time-display');
+
+  // Build hotbar
+  const hotbar = document.getElementById('hotbar');
+  hotbar.innerHTML = '';
+
+  for (let i = 0; i < 9; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'hotbar-slot';
+
+    const num = document.createElement('span');
+    num.className = 'slot-num';
+    num.textContent = i + 1;
+    slot.appendChild(num);
+
+    if (i < HOTBAR_BLOCKS.length) {
+      const preview = document.createElement('div');
+      preview.className = 'block-preview';
+      const color = BLOCK_DATA[HOTBAR_BLOCKS[i]]?.color ?? 0x000000;
+      preview.style.background = '#' + color.toString(16).padStart(6, '0');
+      slot.appendChild(preview);
+    }
+
+    hotbar.appendChild(slot);
+    slots.push(slot);
+  }
 }
 
-export function updateUI(player) {
-  if (!momentumBar) return;
-
-  const m = player.momentum;
-  momentumBar.style.width = (m * 100) + '%';
-
-  // Color the bar based on momentum level
-  if (m >= 0.9) {
-    momentumBar.style.background = 'linear-gradient(90deg, #6b8f5e, #c4956a, #e8c170, #fff)';
-  } else if (m >= 0.7) {
-    momentumBar.style.background = 'linear-gradient(90deg, #6b8f5e, #c4956a, #e8c170)';
-  } else {
-    momentumBar.style.background = 'linear-gradient(90deg, #6b8f5e, #c4956a)';
+export function updateUI(player, atmosphere, world) {
+  // Hotbar selection
+  for (let i = 0; i < slots.length; i++) {
+    slots[i].className = i === player.selectedSlot ? 'hotbar-slot selected' : 'hotbar-slot';
   }
 
-  // Ability indicators
-  abSlide.className = m >= 0.3 ? 'active' : '';
-  abWallrun.className = m >= 0.5 ? 'active' : '';
-  abDash.className = m >= 0.7 ? 'active' : '';
-  abBurst.className = m >= 0.9 ? 'active' : '';
+  // Debug info
+  if (debugEl) {
+    const p = player.position;
+    const block = HOTBAR_BLOCKS[player.selectedSlot];
+    const blockName = BLOCK_DATA[block]?.name ?? '?';
+    debugEl.innerHTML =
+      `XYZ: ${p.x.toFixed(1)} / ${p.y.toFixed(1)} / ${p.z.toFixed(1)}<br>` +
+      `Block: ${blockName}<br>` +
+      `Chunks: ${world.chunks.size}`;
+  }
 
-  // Speed display
-  const hSpeed = Math.sqrt(
-    player.velocity.x * player.velocity.x +
-    player.velocity.z * player.velocity.z
-  );
-  speedDisplay.textContent = hSpeed.toFixed(1) + ' m/s';
+  // Time
+  if (timeEl && atmosphere) {
+    timeEl.textContent = atmosphere.getTimeString();
+  }
 }

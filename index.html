@@ -3,64 +3,83 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Momentum — 3D Parkour</title>
+  <title>Voxel Craft</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
     canvas { display: block; }
-
-    #hud {
-      position: fixed;
-      bottom: 30px;
-      left: 50%;
-      transform: translateX(-50%);
-      pointer-events: none;
-      z-index: 10;
-    }
-
-    #momentum-bar-container {
-      width: 300px;
-      height: 8px;
-      background: rgba(0, 0, 0, 0.5);
-      border-radius: 4px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    #momentum-bar {
-      width: 0%;
-      height: 100%;
-      background: linear-gradient(90deg, #6b8f5e, #c4956a, #e8c170);
-      border-radius: 4px;
-      transition: width 0.1s ease-out;
-    }
-
-    #abilities {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      margin-top: 8px;
-      font-family: monospace;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.3);
-    }
-
-    #abilities .active {
-      color: #e8c170;
-      text-shadow: 0 0 6px rgba(232, 193, 112, 0.5);
-    }
 
     #crosshair {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 4px;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.4);
-      border-radius: 50%;
       pointer-events: none;
       z-index: 10;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.7);
+    }
+    #crosshair::before {
+      width: 2px; height: 20px;
+      left: -1px; top: -10px;
+    }
+    #crosshair::after {
+      width: 20px; height: 2px;
+      left: -10px; top: -1px;
+    }
+
+    #hotbar {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 2px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .hotbar-slot {
+      width: 50px;
+      height: 50px;
+      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .hotbar-slot.selected {
+      border-color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.15);
+    }
+    .hotbar-slot .block-preview {
+      width: 32px;
+      height: 32px;
+      border-radius: 2px;
+    }
+    .hotbar-slot .slot-num {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      font-family: monospace;
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    #debug {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,0.7);
+      pointer-events: none;
+      z-index: 10;
+      line-height: 1.5;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     }
 
     #prompt {
@@ -70,40 +89,31 @@
       transform: translate(-50%, -50%);
       font-family: monospace;
       font-size: 16px;
-      color: rgba(255, 255, 255, 0.6);
+      color: rgba(255,255,255,0.6);
       text-align: center;
       pointer-events: none;
       z-index: 20;
     }
 
-    #speed-display {
+    #time-display {
       position: fixed;
-      bottom: 60px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 10px;
+      right: 10px;
       font-family: monospace;
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.3);
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
       pointer-events: none;
       z-index: 10;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     }
   </style>
 </head>
 <body>
   <div id="crosshair"></div>
   <div id="prompt">Click to play</div>
-  <div id="speed-display"></div>
-  <div id="hud">
-    <div id="momentum-bar-container">
-      <div id="momentum-bar"></div>
-    </div>
-    <div id="abilities">
-      <span id="ab-slide">SLIDE [C]</span>
-      <span id="ab-wallrun">WALLRUN [SPACE]</span>
-      <span id="ab-dash">DASH [SHIFT]</span>
-      <span id="ab-burst">BURST [Q]</span>
-    </div>
-  </div>
+  <div id="hotbar"></div>
+  <div id="debug"></div>
+  <div id="time-display"></div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
